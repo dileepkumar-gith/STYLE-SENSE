@@ -1,7 +1,7 @@
 """
 StyleSense – AI Fashion Advisor (Premium Edition - Fixed)
-Enhanced with Nano Banana Pro 3D image generation, batch processing, and advanced caching
-Optimized for paid Gemini API tier
+Enhanced with Stability AI Image-to-Image generation, batch processing, and advanced caching
+Optimized for paid Gemini API tier and Stability AI REST API
 """
 
 import streamlit as st
@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 import time
 from functools import lru_cache
 from datetime import datetime, timedelta
+import requests
 
 # ============================================================================
 # CONFIGURATION & CONSTANTS
@@ -198,6 +199,110 @@ SHOPPING_PLATFORMS = {
 }
 
 # ============================================================================
+# STABILITY AI IMAGE GENERATION FUNCTIONS
+# ============================================================================
+
+def generate_image_with_stability_ai(reference_image_bytes, costume_description, api_key, strength=0.7):
+    """
+    Generate an image using Stability AI's Image-to-Image API.
+    
+    Args:
+        reference_image_bytes: The reference image as bytes
+        costume_description: Text description of the desired costume/outfit
+        api_key: Stability AI API key
+        strength: How much influence the reference image has (0.0 to 1.0)
+    
+    Returns:
+        PIL Image or None if generation fails
+    """
+    try:
+        # Prepare the request
+        url = "https://api.stability.ai/v2beta/stable-image/generate/core"
+        
+        headers = {
+            "authorization": f"Bearer {api_key}",
+            "accept": "image/*"
+        }
+        
+        # Prepare the files for multipart/form-data
+        files = {
+            "image": ("reference_image.png", reference_image_bytes, "image/png"),
+        }
+        
+        data = {
+            "prompt": costume_description,
+            "mode": "image-to-image",
+            "strength": strength,
+            "output_format": "png"
+        }
+        
+        # Make the API request
+        response = requests.post(url, headers=headers, files=files, data=data, timeout=60)
+        
+        if response.status_code == 200:
+            # Return the generated image as PIL Image
+            return Image.open(BytesIO(response.content))
+        else:
+            st.warning(f"Stability AI API error: {response.status_code} - {response.text}")
+            return None
+            
+    except Exception as e:
+        st.error(f"Error generating image with Stability AI: {e}")
+        return None
+
+
+def generate_image_with_stability_sd35(reference_image_bytes, costume_description, api_key, strength=0.7, model="sd3.5-large"):
+    """
+    Generate an image using Stability AI's Stable Diffusion 3.5 Image-to-Image API.
+    
+    Args:
+        reference_image_bytes: The reference image as bytes
+        costume_description: Text description of the desired costume/outfit
+        api_key: Stability AI API key
+        strength: How much influence the reference image has (0.0 to 1.0)
+        model: Model to use (sd3.5-large, sd3.5-large-turbo, sd3.5-medium, sd3.5-flash)
+    
+    Returns:
+        PIL Image or None if generation fails
+    """
+    try:
+        # Prepare the request
+        url = "https://api.stability.ai/v2beta/stable-image/generate/sd3"
+        
+        headers = {
+            "authorization": f"Bearer {api_key}",
+            "accept": "image/*"
+        }
+        
+        # Prepare the files for multipart/form-data
+        files = {
+            "image": ("reference_image.png", reference_image_bytes, "image/png"),
+        }
+        
+        data = {
+            "prompt": costume_description,
+            "mode": "image-to-image",
+            "model": model,
+            "strength": strength,
+            "output_format": "png"
+        }
+        
+        # Make the API request
+        response = requests.post(url, headers=headers, files=files, data=data, timeout=60)
+        
+        if response.status_code == 200:
+            # Return the generated image as PIL Image
+            return Image.open(BytesIO(response.content))
+        else:
+            st.warning(f"Stability AI SD3.5 API error: {response.status_code} - {response.text}")
+            return None
+            
+    except Exception as e:
+        st.error(f"Error generating image with Stability AI SD3.5: {e}")
+        return None
+
+
+# ============================================================================
 # UTILITY FUNCTIONS WITH CACHING
 # ============================================================================
 
@@ -238,7 +343,7 @@ def generate_shopping_url(product_name, platform, budget_min, budget_max):
 
 
 def generate_shopping_urls(product_name, budget_min, budget_max):
-    """Generate shopping URLs for all platforms."""
+    """Generate shopping URLs for a product across multiple platforms."""
     urls = {}
     for platform in SHOPPING_PLATFORMS.keys():
         urls[platform] = generate_shopping_url(product_name, platform, budget_min, budget_max)
@@ -261,6 +366,7 @@ try:
     load_dotenv()
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+    STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
     
     # Initialize clients
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -354,7 +460,7 @@ st.markdown('''
 
 st.markdown("<h1 style=\'text-align: center; color: #2C3A47;\'>StyleSense</h1>", unsafe_allow_html=True)
 st.markdown("<p style=\'text-align: center; font-family: Roboto, sans-serif; color: #475C7A; margin-bottom: 0.5rem;\'>Your Personal AI Fashion Advisor</p>", unsafe_allow_html=True)
-st.markdown("<div class=\'premium-badge\' style=\'text-align: center; margin: 0 auto 2rem auto;\'>✨ Premium Edition with 3D Nano Banana Pro</div>", unsafe_allow_html=True)
+st.markdown("<div class=\'premium-badge\' style=\'text-align: center; margin: 0 auto 2rem auto;\'>✨ Premium Edition with Stability AI & 3D Nano Banana Pro</div>", unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 
@@ -413,12 +519,29 @@ with col1:
     num_outfits = st.slider("Number of Outfit Variations", min_value=1, max_value=5, value=1)
     image_resolution = st.selectbox("Image Resolution", ["1K", "2K", "4K"], index=1)
     use_3d_render = st.checkbox("Generate 3D Renders (Nano Banana Pro)", value=True)
+    use_stability_ai = st.checkbox("Use Stability AI for Reference-Based Generation", value=True)
+    
+    # Stability AI model selection
+    if use_stability_ai:
+        stability_model = st.selectbox(
+            "Stability AI Model",
+            ["core", "sd3.5-large", "sd3.5-large-turbo", "sd3.5-medium", "sd3.5-flash"],
+            help="Select the model for image generation. SD3.5 models offer better quality but may be slower."
+        )
+        stability_strength = st.slider(
+            "Reference Image Strength",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.7,
+            step=0.1,
+            help="Higher values preserve more of the reference image. Lower values allow more creative freedom."
+        )
 
 if st.button("Generate Outfit(s)", use_container_width=True):
     if uploaded_image is None:
         st.warning("Please upload an image to generate an outfit.")
     else:
-        with st.spinner("🎨 Generating your personalized style with Nano Banana Pro..."):
+        with st.spinner("🎨 Generating your personalized style..."):
             try:
                 # --- AI Workflow ---
                 # Step 1: Enhanced Gemini 2.0 Pro Vision Analysis
@@ -490,16 +613,66 @@ if st.button("Generate Outfit(s)", use_container_width=True):
                         recommendations_json = json.loads(recommendations)
                         outfits_data.append(recommendations_json)
                     except Exception as groq_err:
-                        st.error(f"Error generating outfit {outfit_num + 1}: {groq_err}")
-                        continue
+                        st.warning(f"Outfit {outfit_num + 1} generation error: {groq_err}")
 
                 st.success(f"✅ Generated {len(outfits_data)} outfit(s)!")
 
-                # Step 3: Generate 3D Images with Nano Banana Pro
+                # Step 3: Generate Images with Stability AI or Nano Banana Pro
                 generated_images = []
                 
-                if use_3d_render and len(outfits_data) > 0:
-                    st.info("🎨 Generating 3D fashion renders...")
+                if use_stability_ai and STABILITY_API_KEY and len(outfits_data) > 0:
+                    st.info("🎨 Generating outfit images with Stability AI...")
+                    
+                    for outfit_idx, outfit_rec in enumerate(outfits_data):
+                        # Create detailed prompt for Stability AI
+                        stability_prompt = f'''
+                        Create a professional fashion outfit image based on this description:
+                        
+                        {outfit_rec["outfit_description"]}
+                        
+                        Details:
+                        - Fabrics: {outfit_rec["fabric_recommendation"]}
+                        - Accessories: {outfit_rec["accessories_suggestion"]}
+                        - Color: {final_color if final_color else "neutral"}
+                        - Style: Professional, polished, fashion-forward
+                        - Background: Clean, minimalist white background
+                        - Lighting: Professional studio lighting
+                        '''
+                        
+                        try:
+                            st.info(f"Generating outfit {outfit_idx + 1}/{len(outfits_data)} with Stability AI...")
+                            
+                            if stability_model.startswith("sd3.5"):
+                                # Use SD3.5 model
+                                generated_image = generate_image_with_stability_sd35(
+                                    image_bytes,
+                                    stability_prompt,
+                                    STABILITY_API_KEY,
+                                    strength=stability_strength,
+                                    model=stability_model
+                                )
+                            else:
+                                # Use Core model
+                                generated_image = generate_image_with_stability_ai(
+                                    image_bytes,
+                                    stability_prompt,
+                                    STABILITY_API_KEY,
+                                    strength=stability_strength
+                                )
+                            
+                            if generated_image:
+                                generated_images.append(generated_image)
+                                st.success(f"✅ Outfit {outfit_idx + 1} generated!")
+                            else:
+                                generated_images.append(None)
+                                st.warning(f"⚠️ Could not generate outfit {outfit_idx + 1}")
+                                
+                        except Exception as img_err:
+                            st.warning(f"Image generation for outfit {outfit_idx + 1}: {img_err}")
+                            generated_images.append(None)
+                
+                elif use_3d_render and len(outfits_data) > 0:
+                    st.info("🎨 Generating 3D fashion renders with Nano Banana Pro...")
                     
                     for outfit_idx, outfit_rec in enumerate(outfits_data):
                         # 3D Isometric Fashion Render Prompt
@@ -580,7 +753,7 @@ if st.button("Generate Outfit(s)", use_container_width=True):
                         
                         if gen_image:
                             try:
-                                st.image(gen_image, caption=f"3D Fashion Render - Outfit {outfit_idx + 1}", use_container_width=True)
+                                st.image(gen_image, caption=f"Generated Outfit - {outfit_idx + 1}", use_container_width=True)
                             except Exception as display_err:
                                 st.warning(f"Could not display image: {display_err}")
                         else:
@@ -642,7 +815,6 @@ st.markdown("""
     }
 </style>
 <div class="footer">
-    Powered by Google Gemini & Groq | StyleSense AI Fashion Advisor © 2026
+    Powered by Google Gemini, Groq, Stability AI & StyleSense AI Fashion Advisor © 2026
 </div>
 """, unsafe_allow_html=True)
-
